@@ -1,0 +1,691 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Immich Triage</title>
+<style>
+  :root {
+    --bg: #0e0f12; --panel: #17191e; --panel2: #1f2229; --border: #2c3039;
+    --text: #e8e9ec; --muted: #9096a3; --accent: #4f8cff; --danger: #ff5d5d;
+    --ok: #3ecf8e; --warn: #ffb547;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  button, input, select { font: inherit; color: inherit; }
+  kbd { display: inline-block; min-width: 1.6em; padding: 0 .35em; border: 1px solid var(--border);
+    border-bottom-width: 2px; border-radius: 4px; background: var(--panel2); text-align: center;
+    font: 600 12px/1.6 ui-monospace, monospace; }
+  .hidden { display: none !important; }
+
+  /* ---------- setup ---------- */
+  #setup { max-width: 720px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin-bottom: 24px; }
+  .sub.err { color: var(--danger); }
+  .reminder { border: 2px solid var(--warn); background: #2a2212; border-radius: 10px; padding: 16px 18px;
+    margin-bottom: 24px; }
+  .reminder p { margin: 0 0 12px; font-size: 16px; font-weight: 600; }
+  .reminder label { display: inline-flex; gap: 8px; align-items: center; font-weight: 600; cursor: pointer; }
+  .reminder input { width: 18px; height: 18px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px;
+    margin-bottom: 16px; }
+  .card h2 { font-size: 15px; margin: 0 0 12px; }
+  .row { display: flex; gap: 10px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+  .row .key { width: 80px; display: flex; align-items: center; gap: 6px; color: var(--muted); }
+  select, input[type=number], input[type=text] { background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 8px; min-width: 0; }
+  select { min-width: 240px; }
+  input[type=number] { width: 110px; }
+  .btn { background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600;
+    padding: 10px 22px; font-size: 15px; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .hint { color: var(--muted); font-size: 12px; }
+  .warn { color: var(--warn); font-size: 13px; }
+  .startbar { display: flex; gap: 14px; align-items: center; margin-top: 20px; }
+
+  /* ---------- triage ---------- */
+  #triage { position: fixed; inset: 0; display: grid; grid-template-rows: auto 1fr auto; }
+  .topbar { display: flex; align-items: center; gap: 16px; padding: 8px 16px; background: var(--panel);
+    border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .progress { flex: 1 1 240px; display: flex; align-items: center; gap: 10px; min-width: 200px; }
+  .bar { flex: 1; height: 6px; background: var(--panel2); border-radius: 3px; overflow: hidden; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+  .count { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tally { display: flex; gap: 12px; color: var(--muted); flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+  .tally b { color: var(--text); font-weight: 600; }
+  .pending { color: var(--warn); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #stage { position: relative; min-height: 0; display: flex; align-items: center; justify-content: center;
+    overflow: hidden; background: #000; }
+  #stage img, #stage video { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+  .msg { color: var(--muted); font-size: 16px; text-align: center; padding: 24px; }
+  .badge { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); padding: 6px 14px;
+    border-radius: 999px; background: rgba(0,0,0,.7); border: 1px solid var(--border); font-weight: 600;
+    pointer-events: none; opacity: 0; transition: opacity .35s; }
+  .badge.show { opacity: 1; transition: none; }
+  .srcTag { position: absolute; right: 10px; top: 10px; font-size: 11px; color: var(--muted);
+    background: rgba(0,0,0,.6); padding: 2px 8px; border-radius: 4px; }
+  .mute { position: absolute; left: 10px; top: 10px; font-size: 12px; background: rgba(0,0,0,.6);
+    padding: 2px 8px; border-radius: 4px; }
+  .footer { background: var(--panel); border-top: 1px solid var(--border); padding: 8px 16px; }
+  .meta { display: flex; gap: 18px; flex-wrap: wrap; align-items: baseline; }
+  .meta .fn { font-weight: 600; word-break: break-all; }
+  .meta span { color: var(--muted); }
+  .meta span b { color: var(--text); font-weight: 500; }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 6px; color: var(--muted); }
+  .legend span { display: inline-flex; gap: 6px; align-items: center; }
+  .legend .act { color: var(--text); }
+
+  /* ---------- toasts ---------- */
+  #toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px;
+    z-index: 10; max-width: min(420px, calc(100vw - 32px)); }
+  .toast { background: #2a1416; border: 1px solid var(--danger); border-radius: 8px; padding: 10px 36px 10px 12px;
+    position: relative; box-shadow: 0 4px 16px rgba(0,0,0,.5); }
+  .toast .t { font-weight: 600; color: var(--danger); }
+  .toast .f { word-break: break-all; }
+  .toast .m { color: var(--muted); font-size: 12px; margin-top: 2px; word-break: break-word; }
+  .toast button { position: absolute; top: 6px; right: 6px; background: none; border: 0; color: var(--muted);
+    font-size: 18px; cursor: pointer; line-height: 1; padding: 2px 6px; }
+</style>
+</head>
+<body>
+
+<section id="setup">
+  <h1>Immich Triage</h1>
+  <div class="sub" id="serverInfo">Connecting to Immich…</div>
+
+  <div class="reminder">
+    <p>Before triaging: free up space on your iPhone first. Make sure the Immich app shows these assets as
+      backed up, then delete them from iOS Photos.</p>
+    <label><input type="checkbox" id="doneBox"> Done</label>
+  </div>
+
+  <div class="card">
+    <h2>Queue</h2>
+    <div class="row">
+      <label for="minAge">Min age (days)</label>
+      <input type="number" id="minAge" min="0" step="1">
+      <span class="hint" id="cutoffHint"></span>
+    </div>
+    <div class="hint">Assets not in any album, taken before the cutoff, oldest first. Own timeline assets only
+      (no archived, partner or locked).</div>
+  </div>
+
+  <div class="card">
+    <h2>Key bindings</h2>
+    <div id="bindings"></div>
+    <div class="warn hidden" id="trashWarn">Trash is disabled on this Immich server: deleted assets would be
+      purged at the next nightly cleanup, so the Trash action is unavailable.</div>
+  </div>
+
+  <div class="startbar">
+    <button class="btn primary" id="startBtn" disabled>Start</button>
+    <span class="hint" id="startHint"></span>
+  </div>
+</section>
+
+<section id="triage" class="hidden">
+  <div class="topbar">
+    <div class="progress"><span class="count" id="count"></span><div class="bar"><div id="barFill"></div></div></div>
+    <div class="tally" id="tally"></div>
+    <div class="pending" id="pending"></div>
+  </div>
+  <div id="stage"></div>
+  <div class="footer">
+    <div class="meta" id="meta"></div>
+    <div class="legend" id="legend"></div>
+  </div>
+</section>
+
+<div id="toasts"></div>
+
+<script>
+"use strict";
+
+const KEYS = [
+  { key: "left", code: "ArrowLeft", glyph: "←" },
+  { key: "right", code: "ArrowRight", glyph: "→" },
+  { key: "up", code: "ArrowUp", glyph: "↑" },
+  { key: "down", code: "ArrowDown", glyph: "↓" },
+];
+const PREFETCH = 4;           // assets preloaded ahead of the current one
+const REFILL_BELOW = 15;      // fetch the next page when fewer than this remain locally
+// Same list Immich uses server-side (mime-types.ts webSupportedImage)
+const WEB_IMAGE_MIME = new Set(["image/jpeg", "image/png", "image/apng", "image/gif", "image/webp", "image/avif", "image/bmp"]);
+const WEB_IMAGE_EXT = /\.(jpe?g|png|apng|gif|webp|avif|bmp)$/i;
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// ------------------------------------------------------------------ state
+const S = {
+  info: null,
+  albums: [],
+  config: null,
+  doneTicked: false,
+  screen: "setup",
+  muted: true,
+  // session-only (lost on reload, by design)
+  handled: new Map(),   // assetId -> binding applied this session
+  skipped: new Map(),   // assetId -> asset
+  history: [],          // undo stack: { asset, binding }
+  tally: new Map(),     // label -> count
+  run: null,            // current queue run, reset on each Start
+};
+
+async function api(method, url, body) {
+  const r = await fetch(url, {
+    method,
+    headers: body ? { "content-type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!r.ok) {
+    let msg = `${r.status} ${r.statusText}`;
+    try {
+      const j = await r.json();
+      msg = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail ?? j);
+    } catch { /* keep status text */ }
+    throw new Error(msg);
+  }
+  return r.json();
+}
+
+// ------------------------------------------------------------------ toasts
+function toast(title, file, message) {
+  const el = document.createElement("div");
+  el.className = "toast";
+  el.innerHTML = `<div class="t">${esc(title)}</div>${file ? `<div class="f">${esc(file)}</div>` : ""}
+    <div class="m">${esc(message)}</div><button title="Dismiss">×</button>`;
+  el.querySelector("button").onclick = () => el.remove();
+  $("toasts").append(el);
+}
+
+// ------------------------------------------------------------------ sequential action queue
+const actionQueue = [];
+let queueBusy = false;
+let drainWaiters = [];
+
+function enqueue(job) {
+  actionQueue.push(job);
+  renderPending();
+  pump();
+}
+
+async function pump() {
+  if (queueBusy) return;
+  queueBusy = true;
+  while (actionQueue.length) {
+    const job = actionQueue[0];
+    try {
+      await api("POST", "/api/action", job.body);
+    } catch (e) {
+      toast(`Failed: ${job.label}`, job.asset.originalFileName, e.message);
+    }
+    actionQueue.shift();
+    renderPending();
+  }
+  queueBusy = false;
+  drainWaiters.forEach((f) => f());
+  drainWaiters = [];
+}
+
+const drained = () => (queueBusy || actionQueue.length ? new Promise((r) => drainWaiters.push(r)) : Promise.resolve());
+
+function renderPending() {
+  const n = actionQueue.length;
+  $("pending").textContent = n ? `⏳ ${n} pending` : "";
+}
+
+// ------------------------------------------------------------------ bindings helpers
+function bindingLabel(b) {
+  if (!b) return "unset";
+  if (b.type === "skip") return "Skip";
+  if (b.type === "trash") return "Trash";
+  return b.albumName || "Album";
+}
+
+function bindingValid(b) {
+  if (!b) return false;
+  if (b.type === "trash") return !!S.info?.trashEnabled;
+  if (b.type === "album") return S.albums.some((a) => a.id === b.albumId);
+  return b.type === "skip";
+}
+
+// ------------------------------------------------------------------ setup screen
+let saveTimer = null;
+function saveConfig() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    try { await api("PUT", "/api/config", S.config); }
+    catch (e) { toast("Failed to save config.json", "", e.message); }
+  }, 250);
+}
+
+function renderBindings() {
+  const box = $("bindings");
+  box.innerHTML = "";
+  for (const k of KEYS) {
+    const b = S.config.bindings[k.key];
+    const row = document.createElement("div");
+    row.className = "row";
+
+    const sel = document.createElement("select");
+    const opts = [`<option value="">— unset —</option>`, `<option value="skip">Skip</option>`,
+      `<option value="trash" ${S.info && !S.info.trashEnabled ? "disabled" : ""}>Trash (soft delete)</option>`,
+      `<optgroup label="Add to album">`,
+      ...S.albums.map((a) => `<option value="album:${a.id}">${esc(a.albumName)} (${a.assetCount})</option>`)];
+    if (b?.type === "album" && !S.albums.some((a) => a.id === b.albumId)) {
+      opts.push(`<option value="album:${esc(b.albumId)}">${esc(b.albumName)} (missing!)</option>`);
+    }
+    opts.push(`<option value="new">＋ New album…</option></optgroup>`);
+    sel.innerHTML = opts.join("");
+    sel.value = !b ? "" : b.type === "album" ? `album:${b.albumId}` : b.type;
+
+    const newWrap = document.createElement("span");
+    newWrap.className = "row hidden";
+    newWrap.style.margin = "0";
+    newWrap.innerHTML = `<input type="text" placeholder="New album name"><button class="btn">Create</button>`;
+    const [nameIn, createBtn] = newWrap.children;
+    const create = async () => {
+      const name = nameIn.value.trim();
+      if (!name) return;
+      createBtn.disabled = true;
+      try {
+        const album = await api("POST", "/api/albums", { albumName: name });
+        S.albums = await api("GET", "/api/albums");
+        S.config.bindings[k.key] = { type: "album", albumId: album.id, albumName: album.albumName };
+        saveConfig();
+        renderBindings();
+      } catch (e) {
+        toast("Failed to create album", name, e.message);
+        createBtn.disabled = false;
+      }
+    };
+    createBtn.onclick = create;
+    nameIn.onkeydown = (e) => { if (e.key === "Enter") create(); };
+
+    sel.onchange = () => {
+      const v = sel.value;
+      if (v === "new") { newWrap.classList.remove("hidden"); nameIn.focus(); return; }
+      newWrap.classList.add("hidden");
+      if (!v) S.config.bindings[k.key] = null;
+      else if (v.startsWith("album:")) {
+        const a = S.albums.find((x) => x.id === v.slice(6));
+        S.config.bindings[k.key] = { type: "album", albumId: a.id, albumName: a.albumName };
+      } else S.config.bindings[k.key] = { type: v };
+      saveConfig();
+      renderStartState();
+    };
+
+    row.innerHTML = `<span class="key"><kbd>${k.glyph}</kbd>${k.key}</span>`;
+    row.append(sel, newWrap);
+    box.append(row);
+  }
+  $("trashWarn").classList.toggle("hidden", !S.info || S.info.trashEnabled);
+  renderStartState();
+}
+
+function cutoffDate() {
+  return new Date(Date.now() - S.config.minAgeDays * 86400000);
+}
+
+function renderStartState() {
+  const missing = KEYS.filter((k) => !bindingValid(S.config.bindings[k.key])).map((k) => k.glyph);
+  const reasons = [];
+  if (!S.info) reasons.push("not connected to Immich");
+  else if (!S.info.versionOk) reasons.push(`Immich ${S.info.minVersion}+ required`);
+  if (missing.length) reasons.push(`bind ${missing.join(" ")}`);
+  if (!S.doneTicked) reasons.push("tick Done");
+  $("startBtn").disabled = reasons.length > 0;
+  $("startHint").textContent = reasons.length ? `To start: ${reasons.join(", ")}` : "Enter ↵ to start";
+  $("cutoffHint").textContent = `→ taken before ${cutoffDate().toLocaleDateString()}`;
+}
+
+async function initSetup() {
+  S.config = await api("GET", "/api/config");
+  $("minAge").value = S.config.minAgeDays;
+  $("minAge").oninput = () => {
+    const n = parseInt($("minAge").value, 10);
+    if (Number.isFinite(n) && n >= 0) { S.config.minAgeDays = n; saveConfig(); renderStartState(); }
+  };
+  $("doneBox").onchange = () => { S.doneTicked = $("doneBox").checked; renderStartState(); };
+  $("startBtn").onclick = start;
+  renderBindings();
+  try {
+    [S.info, S.albums] = await Promise.all([api("GET", "/api/info"), api("GET", "/api/albums")]);
+    const si = $("serverInfo");
+    si.textContent = `Connected to Immich ${S.info.version} at ${S.info.immichUrl} as ${S.info.user}`;
+    if (!S.info.versionOk) {
+      si.textContent += ` — this app needs Immich ${S.info.minVersion} or newer`;
+      si.classList.add("err");
+    }
+  } catch (e) {
+    $("serverInfo").textContent = `Cannot talk to Immich: ${e.message}`;
+    $("serverInfo").classList.add("err");
+  }
+  renderBindings();
+}
+
+function showSetup() {
+  S.screen = "setup";
+  pauseAllVideos();
+  $("triage").classList.add("hidden");
+  $("setup").classList.remove("hidden");
+  renderBindings();
+}
+
+// ------------------------------------------------------------------ queue run
+async function start() {
+  if ($("startBtn").disabled) return;
+  S.screen = "triage";
+  $("setup").classList.add("hidden");
+  $("triage").classList.remove("hidden");
+  const cutoff = cutoffDate().toISOString();
+  const run = (S.run = { cutoff, items: [], pos: 0, after: null, exclude: [], done: false, loading: false, total: null, ready: false });
+  clearMedia();
+  renderTriage();
+  renderLegend();
+
+  // Let pending actions land first so the count reflects them.
+  if (actionQueue.length) { stageMsg("Finishing pending actions…"); await drained(); }
+  if (S.run !== run) return;
+  stageMsg("Loading queue…");
+  try {
+    const [stats] = await Promise.all([api("POST", "/api/stats", { cutoff }), fetchMore(run)]);
+    if (S.run !== run) return;
+    // Skipped assets still match the search; they won't be shown again this session.
+    const skippedInRange = [...S.skipped.values()].filter((a) => a.fileCreatedAt < cutoff).length;
+    run.total = Math.max(0, stats.total - skippedInRange);
+  } catch (e) {
+    toast("Failed to load queue", "", e.message);
+  }
+  run.ready = true;
+  renderTriage();
+}
+
+async function fetchMore(run) {
+  if (run.loading || run.done) return;
+  run.loading = true;
+  try {
+    const res = await api("POST", "/api/queue", { cutoff: run.cutoff, after: run.after, exclude: run.exclude, want: 50 });
+    if (S.run !== run) return;
+    run.after = res.after;
+    run.exclude = res.exclude;
+    run.done = res.done;
+    const known = new Set(run.items.map((a) => a.id));
+    run.items.push(...res.items.filter((a) => !S.handled.has(a.id) && !known.has(a.id)));
+  } catch (e) {
+    toast("Failed to fetch assets", "", e.message);
+    run.done = true;
+  } finally {
+    run.loading = false;
+  }
+  if (S.run === run && run.ready) renderTriage();
+  maybeFetchMore();
+}
+
+function maybeFetchMore() {
+  const run = S.run;
+  if (run && !run.done && !run.loading && run.items.length - run.pos < REFILL_BELOW) fetchMore(run);
+}
+
+// ------------------------------------------------------------------ actions & undo
+function bump(label, delta) {
+  S.tally.set(label, (S.tally.get(label) || 0) + delta);
+}
+
+function act(key) {
+  const run = S.run;
+  const asset = run?.ready && run.items[run.pos];
+  const b = S.config.bindings[key];
+  if (!asset || !bindingValid(b)) return;
+  const binding = { ...b };
+
+  S.history.push({ asset, binding });
+  S.handled.set(asset.id, binding);
+  bump(bindingLabel(binding), 1);
+  if (binding.type === "skip") S.skipped.set(asset.id, asset);
+  else if (binding.type === "trash") enqueue({ label: "Trash", asset, body: { op: "trash", assetId: asset.id } });
+  else enqueue({ label: `Add to ${binding.albumName}`, asset, body: { op: "album_add", assetId: asset.id, albumId: binding.albumId } });
+
+  run.pos++;
+  flashBadge(`${KEYS.find((k) => k.key === key).glyph} ${bindingLabel(binding)}`);
+  renderTriage();
+  maybeFetchMore();
+}
+
+function undo() {
+  const run = S.run;
+  const h = S.history.pop();
+  if (!h || !run?.ready) { if (h) S.history.push(h); return; }
+  const { asset, binding } = h;
+
+  S.handled.delete(asset.id);
+  bump(bindingLabel(binding), -1);
+  if (binding.type === "skip") S.skipped.delete(asset.id);
+  else if (binding.type === "trash") enqueue({ label: "Undo trash (restore)", asset, body: { op: "restore", assetId: asset.id } });
+  else enqueue({ label: `Undo add to ${binding.albumName}`, asset, body: { op: "album_remove", assetId: asset.id, albumId: binding.albumId } });
+
+  if (run.pos > 0 && run.items[run.pos - 1]?.id === asset.id) run.pos--;
+  else run.items.splice(run.pos, 0, asset);  // acted on before the last Start
+  flashBadge(`↶ Undo ${bindingLabel(binding)}`);
+  renderTriage();
+}
+
+let badgeTimer = null;
+function flashBadge(text) {
+  let b = $("stage").querySelector(".badge");
+  if (!b) { b = document.createElement("div"); b.className = "badge"; $("stage").append(b); }
+  b.textContent = text;
+  b.classList.add("show");
+  clearTimeout(badgeTimer);
+  badgeTimer = setTimeout(() => b.classList.remove("show"), 250);
+}
+
+// ------------------------------------------------------------------ media (with prefetch cache)
+const media = new Map(); // assetId -> { el, source }
+
+function isWebImage(a) {
+  return a.originalMimeType ? WEB_IMAGE_MIME.has(a.originalMimeType.toLowerCase()) : WEB_IMAGE_EXT.test(a.originalFileName || "");
+}
+
+function mediaFor(a) {
+  let m = media.get(a.id);
+  if (m) return m;
+  m = { el: null, source: "" };
+  if (a.type === "VIDEO") {
+    const v = document.createElement("video");
+    v.loop = true; v.muted = S.muted; v.playsInline = true; v.preload = "auto";
+    let fellBack = false;
+    const fallback = () => {
+      if (fellBack || m.released) return;
+      fellBack = true;
+      m.source = "transcoded";
+      v.src = `/media/${a.id}/playback`;
+      v.load();
+      if (isCurrent(a)) { v.play().catch(() => {}); renderSourceTag(a); }
+    };
+    v.addEventListener("error", fallback);
+    // e.g. HEVC in Chrome/Firefox on Linux: container parses, video track can't be decoded
+    v.addEventListener("loadedmetadata", () => { if (v.videoWidth === 0) fallback(); });
+    m.source = "original";
+    v.src = `/media/${a.id}/original`;
+    m.el = v;
+  } else {
+    const img = new Image();
+    img.decoding = "async";
+    img.alt = a.originalFileName || "";
+    if (isWebImage(a)) {
+      m.source = "original";
+      img.onerror = () => {
+        if (m.source !== "original" || m.released) return;
+        m.source = "converted";
+        img.src = `/media/${a.id}/fullsize`;
+        if (isCurrent(a)) renderSourceTag(a);
+      };
+      img.src = `/media/${a.id}/original`;
+    } else {
+      m.source = "converted";  // HEIC/HEIF/RAW/TIFF/JXL…
+      img.src = `/media/${a.id}/fullsize`;
+    }
+    m.el = img;
+  }
+  media.set(a.id, m);
+  return m;
+}
+
+function isCurrent(a) {
+  return S.screen === "triage" && S.run?.items[S.run.pos]?.id === a.id;
+}
+
+function releaseMedia(id) {
+  const m = media.get(id);
+  if (!m) return;
+  m.released = true;
+  if (m.el.tagName === "VIDEO") { m.el.pause(); m.el.removeAttribute("src"); m.el.load(); }
+  else m.el.removeAttribute("src");
+  media.delete(id);
+}
+
+function clearMedia() { [...media.keys()].forEach(releaseMedia); }
+
+function pauseAllVideos(exceptId) {
+  for (const [id, m] of media) if (id !== exceptId && m.el.tagName === "VIDEO") m.el.pause();
+}
+
+function syncPrefetch() {
+  const { items, pos } = S.run;
+  const keep = new Set(items.slice(Math.max(0, pos - 1), pos + 1 + PREFETCH).map((a) => a.id));
+  for (const id of [...media.keys()]) if (!keep.has(id)) releaseMedia(id);
+  items.slice(pos, pos + 1 + PREFETCH).forEach(mediaFor);
+}
+
+// ------------------------------------------------------------------ triage rendering
+function stageMsg(html) {
+  pauseAllVideos();
+  const badge = $("stage").querySelector(".badge");
+  $("stage").innerHTML = `<div class="msg">${html}</div>`;
+  if (badge) $("stage").append(badge);
+  $("meta").innerHTML = "";
+}
+
+function fmtBytes(n) {
+  if (n == null) return "?";
+  const u = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return `${n.toFixed(i ? 1 : 0)} ${u[i]}`;
+}
+
+function fmtDuration(ms) {
+  if (ms == null) return "?";
+  const s = Math.round(ms / 1000);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = String(s % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+}
+
+function fmtTaken(a) {
+  // localDateTime is wall-clock time at capture, serialized as if UTC
+  const d = new Date(a.localDateTime || a.fileCreatedAt);
+  return d.toLocaleString(undefined, { timeZone: a.localDateTime ? "UTC" : undefined, dateStyle: "medium", timeStyle: "short" });
+}
+
+function renderSourceTag(a) {
+  const m = media.get(a.id);
+  let tag = $("stage").querySelector(".srcTag");
+  if (!tag) { tag = document.createElement("div"); tag.className = "srcTag"; $("stage").append(tag); }
+  tag.textContent = m?.source === "original" ? "original" : m?.source === "transcoded" ? "transcoded playback" : "converted preview";
+}
+
+function renderTriage() {
+  const run = S.run;
+  if (!run) return;
+  renderTopbar();
+  if (!run.ready) return;
+  const a = run.items[run.pos];
+  if (!a) {
+    if (!run.done) { stageMsg("Loading more…"); maybeFetchMore(); }
+    else stageMsg(`Nothing left to triage 🎉<br><br><kbd>Z</kbd> undo &nbsp; <kbd>Esc</kbd> setup`);
+    return;
+  }
+  syncPrefetch();
+  const m = mediaFor(a);
+  const stage = $("stage");
+  const badge = stage.querySelector(".badge");
+  stage.replaceChildren(m.el);
+  if (badge) stage.append(badge);
+  pauseAllVideos(a.id);
+  if (m.el.tagName === "VIDEO") {
+    m.el.muted = S.muted;
+    m.el.currentTime = 0;
+    m.el.play().catch(() => {});
+    const mute = document.createElement("div");
+    mute.className = "mute";
+    mute.textContent = S.muted ? "🔇 muted (M)" : "🔊 sound on (M)";
+    stage.append(mute);
+  }
+  renderSourceTag(a);
+
+  const dims = a.width && a.height ? `${a.width}×${a.height}` : "?";
+  const device = [a.make, a.model].filter(Boolean).join(" ") || "unknown";
+  $("meta").innerHTML = `<div class="fn">${esc(a.originalFileName)}</div>
+    <span>Taken <b>${esc(fmtTaken(a))}</b></span>
+    <span><b>${dims}</b></span>
+    <span><b>${fmtBytes(a.fileSize)}</b></span>
+    <span>Device <b>${esc(device)}</b></span>
+    ${a.type === "VIDEO" ? `<span>Duration <b>${fmtDuration(a.duration)}</b></span>` : ""}`;
+}
+
+function renderTopbar() {
+  const run = S.run;
+  const total = run.total;
+  const shown = Math.min(run.pos + 1, total ?? Infinity);
+  $("count").textContent = total == null ? "…" : `${total ? shown : 0} / ${total}`;
+  $("barFill").style.width = total ? `${Math.min(100, (run.pos / total) * 100)}%` : "0";
+  $("tally").innerHTML = [...S.tally].filter(([, n]) => n > 0).map(([l, n]) => `<span>${esc(l)} <b>${n}</b></span>`).join("");
+  renderPending();
+}
+
+function renderLegend() {
+  const parts = KEYS.map((k) => `<span><kbd>${k.glyph}</kbd><span class="act">${esc(bindingLabel(S.config.bindings[k.key]))}</span></span>`);
+  parts.push(`<span><kbd>Z</kbd>Undo</span>`, `<span><kbd>M</kbd>Sound</span>`, `<span><kbd>Esc</kbd>Setup</span>`);
+  $("legend").innerHTML = parts.join("");
+}
+
+function toggleMute() {
+  S.muted = !S.muted;
+  for (const m of media.values()) if (m.el.tagName === "VIDEO") m.el.muted = S.muted;
+  const tag = $("stage").querySelector(".mute");
+  if (tag) tag.textContent = S.muted ? "🔇 muted (M)" : "🔊 sound on (M)";
+}
+
+// ------------------------------------------------------------------ keyboard
+document.addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.altKey || e.metaKey) return;
+  if (S.screen === "setup") {
+    if (e.key === "Enter" && !["INPUT", "SELECT", "BUTTON"].includes(e.target.tagName)) start();
+    return;
+  }
+  const k = KEYS.find((x) => x.code === e.key);
+  if (k) {
+    e.preventDefault();
+    if (!e.repeat) act(k.key);  // holding a key must not machine-gun through the library
+  } else if (e.key === "z" || e.key === "Z" || e.key === "Backspace") {
+    e.preventDefault();
+    undo();
+  } else if (e.key === "m" || e.key === "M") {
+    toggleMute();
+  } else if (e.key === "Escape") {
+    showSetup();
+  }
+});
+
+initSetup().catch((e) => {
+  $("serverInfo").textContent = `Failed to start: ${e.message}`;
+  $("serverInfo").classList.add("err");
+});
+</script>
+</body>
+</html>
