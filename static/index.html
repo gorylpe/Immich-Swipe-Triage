@@ -33,6 +33,7 @@
     margin-bottom: 16px; }
   .card h2 { font-size: 15px; margin: 0 0 12px; }
   .row { display: flex; gap: 10px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+  .row .lbl { width: 110px; }
   .row .key { width: 80px; display: flex; align-items: center; gap: 6px; color: var(--muted); }
   select, input[type=number], input[type=text] { background: var(--panel2); border: 1px solid var(--border);
     border-radius: 6px; padding: 6px 8px; min-width: 0; }
@@ -61,7 +62,25 @@
     overflow: hidden; background: #000; }
   #stage img, #stage video { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
   .msg { color: var(--muted); font-size: 16px; text-align: center; padding: 24px; }
-  .badge { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); padding: 6px 14px;
+  .hints { position: absolute; inset: 0; pointer-events: none; }
+  .hints.off { display: none; }
+  .chip { position: absolute; display: flex; gap: 14px; align-items: center; max-width: 40%;
+    padding: 12px 26px 12px 12px; border-radius: 999px; background: rgba(12,13,16,.5);
+    border: 2px solid rgba(255,255,255,.22); color: rgba(255,255,255,.95); font-weight: 700;
+    font-size: clamp(18px, 2.2vw, 30px); white-space: nowrap; opacity: .82;
+    backdrop-filter: blur(4px); transition: background .25s, opacity .25s; }
+  .chip span { overflow: hidden; text-overflow: ellipsis; }
+  .chip kbd { min-width: 1.7em; padding: 0 .3em; font-size: 1em; line-height: 1.5; border-radius: 10px;
+    background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.3); color: #fff; }
+  .chip.left { left: 20px; top: 50%; transform: translateY(-50%); }
+  .chip.right { right: 20px; top: 50%; transform: translateY(-50%); }
+  .chip.up { top: 20px; left: 50%; transform: translateX(-50%); }
+  .chip.down { bottom: 20px; left: 50%; transform: translateX(-50%); }
+  .chip.trash { border-color: rgba(255,93,93,.55); }
+  .chip.album { border-color: rgba(79,140,255,.6); }
+  .chip.hit { opacity: 1; background: rgba(79,140,255,.85); transition: none; }
+  .chip.trash.hit { background: rgba(255,93,93,.85); }
+  .badge { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 6px 14px;
     border-radius: 999px; background: rgba(0,0,0,.7); border: 1px solid var(--border); font-weight: 600;
     pointer-events: none; opacity: 0; transition: opacity .35s; }
   .badge.show { opacity: 1; transition: none; }
@@ -105,12 +124,23 @@
   <div class="card">
     <h2>Queue</h2>
     <div class="row">
-      <label for="minAge">Min age (days)</label>
+      <label for="minAge" class="lbl">Min age (days)</label>
       <input type="number" id="minAge" min="0" step="1">
-      <span class="hint" id="cutoffHint"></span>
     </div>
-    <div class="hint">Assets not in any album, taken before the cutoff, oldest first. Own timeline assets only
-      (no archived, partner or locked).</div>
+    <div class="row">
+      <label for="maxAge" class="lbl">Max age (days)</label>
+      <input type="number" id="maxAge" min="0" step="1">
+      <button class="btn" id="maxAgeAll" title="Set to the maximum: effectively no upper limit">No limit</button>
+    </div>
+    <div class="row">
+      <label for="sortOrder" class="lbl">Order</label>
+      <select id="sortOrder" style="min-width: 0">
+        <option value="desc">Newest first</option>
+        <option value="asc">Oldest first</option>
+      </select>
+    </div>
+    <div class="hint" id="cutoffHint"></div>
+    <div class="hint">Assets not in any album. Own timeline assets only (no archived, partner or locked).</div>
   </div>
 
   <div class="card">
@@ -327,8 +357,14 @@ function renderBindings() {
   renderStartState();
 }
 
+const MAX_DAYS = 100000;  // backend limit (~274 years): "no limit" in practice
+
 function cutoffDate() {
   return new Date(Date.now() - S.config.minAgeDays * 86400000);
+}
+
+function sinceDate() {
+  return new Date(Date.now() - S.config.maxAgeDays * 86400000);
 }
 
 function renderStartState() {
@@ -337,19 +373,28 @@ function renderStartState() {
   if (!S.info) reasons.push("not connected to Immich");
   else if (!S.info.versionOk) reasons.push(`Immich ${S.info.minVersion}+ required`);
   if (missing.length) reasons.push(`bind ${missing.join(" ")}`);
+  if (S.config.maxAgeDays < S.config.minAgeDays) reasons.push("max age must be ≥ min age");
   if (!S.doneTicked) reasons.push("tick Done");
   $("startBtn").disabled = reasons.length > 0;
   $("startHint").textContent = reasons.length ? `To start: ${reasons.join(", ")}` : "Enter ↵ to start";
-  $("cutoffHint").textContent = `→ taken before ${cutoffDate().toLocaleDateString()}`;
+  const from = S.config.maxAgeDays >= MAX_DAYS ? "any time" : sinceDate().toLocaleDateString();
+  $("cutoffHint").textContent = `Taken between ${from} and ${cutoffDate().toLocaleDateString()}, ` +
+    (S.config.sortOrder === "asc" ? "oldest first." : "newest first.");
 }
 
 async function initSetup() {
   S.config = await api("GET", "/api/config");
-  $("minAge").value = S.config.minAgeDays;
-  $("minAge").oninput = () => {
-    const n = parseInt($("minAge").value, 10);
-    if (Number.isFinite(n) && n >= 0) { S.config.minAgeDays = n; saveConfig(); renderStartState(); }
-  };
+  for (const [id, field] of [["minAge", "minAgeDays"], ["maxAge", "maxAgeDays"]]) {
+    $(id).max = MAX_DAYS;
+    $(id).value = S.config[field];
+    $(id).oninput = () => {
+      const n = parseInt($(id).value, 10);
+      if (Number.isFinite(n) && n >= 0 && n <= MAX_DAYS) { S.config[field] = n; saveConfig(); renderStartState(); }
+    };
+  }
+  $("maxAgeAll").onclick = () => { $("maxAge").value = MAX_DAYS; $("maxAge").oninput(); };
+  $("sortOrder").value = S.config.sortOrder;
+  $("sortOrder").onchange = () => { S.config.sortOrder = $("sortOrder").value; saveConfig(); renderStartState(); };
   $("doneBox").onchange = () => { S.doneTicked = $("doneBox").checked; renderStartState(); };
   $("startBtn").onclick = start;
   renderBindings();
@@ -383,7 +428,8 @@ async function start() {
   $("setup").classList.add("hidden");
   $("triage").classList.remove("hidden");
   const cutoff = cutoffDate().toISOString();
-  const run = (S.run = { cutoff, items: [], pos: 0, after: null, exclude: [], done: false, loading: false, total: null, ready: false });
+  const since = S.config.maxAgeDays >= MAX_DAYS ? null : sinceDate().toISOString();
+  const run = (S.run = { cutoff, since, order: S.config.sortOrder, items: [], pos: 0, after: null, exclude: [], done: false, loading: false, total: null, ready: false });
   clearMedia();
   renderTriage();
   renderLegend();
@@ -393,10 +439,10 @@ async function start() {
   if (S.run !== run) return;
   stageMsg("Loading queue…");
   try {
-    const [stats] = await Promise.all([api("POST", "/api/stats", { cutoff }), fetchMore(run)]);
+    const [stats] = await Promise.all([api("POST", "/api/stats", { cutoff, since }), fetchMore(run)]);
     if (S.run !== run) return;
     // Skipped assets still match the search; they won't be shown again this session.
-    const skippedInRange = [...S.skipped.values()].filter((a) => a.fileCreatedAt < cutoff).length;
+    const skippedInRange = [...S.skipped.values()].filter((a) => a.fileCreatedAt < cutoff && (!since || a.fileCreatedAt >= since)).length;
     run.total = Math.max(0, stats.total - skippedInRange);
   } catch (e) {
     toast("Failed to load queue", "", e.message);
@@ -409,7 +455,7 @@ async function fetchMore(run) {
   if (run.loading || run.done) return;
   run.loading = true;
   try {
-    const res = await api("POST", "/api/queue", { cutoff: run.cutoff, after: run.after, exclude: run.exclude, want: 50 });
+    const res = await api("POST", "/api/queue", { cutoff: run.cutoff, since: run.since, order: run.order, after: run.after, exclude: run.exclude, want: 50 });
     if (S.run !== run) return;
     run.after = res.after;
     run.exclude = res.exclude;
@@ -451,6 +497,7 @@ function act(key) {
   else enqueue({ label: `Add to ${binding.albumName}`, asset, body: { op: "album_add", assetId: asset.id, albumId: binding.albumId } });
 
   run.pos++;
+  flashChip(key);
   flashBadge(`${KEYS.find((k) => k.key === key).glyph} ${bindingLabel(binding)}`);
   renderTriage();
   maybeFetchMore();
@@ -592,6 +639,35 @@ function fmtTaken(a) {
   return d.toLocaleString(undefined, { timeZone: a.localDateTime ? "UTC" : undefined, dateStyle: "medium", timeStyle: "short" });
 }
 
+// Semi-transparent key hints over the whole stage, each on the edge its arrow points to.
+const hints = document.createElement("div");
+hints.className = "hints";
+let hintsOn = true;
+
+function buildHints() {
+  hints.innerHTML = KEYS.map((k) => {
+    const b = S.config.bindings[k.key];
+    return `<div class="chip ${k.key} ${b?.type || ""}" data-key="${k.key}"><kbd>${k.glyph}</kbd><span>${esc(bindingLabel(b))}</span></div>`;
+  }).join("");
+}
+
+function attachHints() {
+  hints.classList.toggle("off", !hintsOn);
+  $("stage").append(hints);
+}
+
+function flashChip(key) {
+  const chip = hints.querySelector(`.chip.${key}`);
+  if (!chip) return;
+  chip.classList.add("hit");
+  setTimeout(() => chip.classList.remove("hit"), 180);
+}
+
+function toggleHints() {
+  hintsOn = !hintsOn;
+  hints.classList.toggle("off", !hintsOn);
+}
+
 function renderSourceTag(a) {
   const m = media.get(a.id);
   let tag = $("stage").querySelector(".srcTag");
@@ -615,6 +691,7 @@ function renderTriage() {
   const stage = $("stage");
   const badge = stage.querySelector(".badge");
   stage.replaceChildren(m.el);
+  attachHints();
   if (badge) stage.append(badge);
   pauseAllVideos(a.id);
   if (m.el.tagName === "VIDEO") {
@@ -650,8 +727,9 @@ function renderTopbar() {
 
 function renderLegend() {
   const parts = KEYS.map((k) => `<span><kbd>${k.glyph}</kbd><span class="act">${esc(bindingLabel(S.config.bindings[k.key]))}</span></span>`);
-  parts.push(`<span><kbd>Z</kbd>Undo</span>`, `<span><kbd>M</kbd>Sound</span>`, `<span><kbd>Esc</kbd>Setup</span>`);
+  parts.push(`<span><kbd>Z</kbd>Undo</span>`, `<span><kbd>M</kbd>Sound</span>`, `<span><kbd>H</kbd>Overlay</span>`, `<span><kbd>Esc</kbd>Setup</span>`);
   $("legend").innerHTML = parts.join("");
+  buildHints();
 }
 
 function toggleMute() {
@@ -677,6 +755,8 @@ document.addEventListener("keydown", (e) => {
     undo();
   } else if (e.key === "m" || e.key === "M") {
     toggleMute();
+  } else if (e.key === "h" || e.key === "H") {
+    toggleHints();
   } else if (e.key === "Escape") {
     showSetup();
   }

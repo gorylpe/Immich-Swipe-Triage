@@ -24,11 +24,14 @@ INDEX_HTML = ROOT / "static" / "index.html"
 
 HOST, PORT = "127.0.0.1", 8765
 MIN_VERSION = (3, 2, 0)
+MAX_DAYS = 100_000  # ~274 years: "no upper limit" in practice
 SEARCH_PAGE_SIZE = 200
 UUID_RE = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 KEYS = ("left", "right", "up", "down")
 DEFAULT_CONFIG: dict[str, Any] = {
     "minAgeDays": 366,
+    "maxAgeDays": MAX_DAYS,
+    "sortOrder": "desc",
     "bindings": {"left": None, "right": None, "up": {"type": "skip"}, "down": {"type": "trash"}},
 }
 
@@ -77,7 +80,7 @@ async def me() -> dict[str, Any]:
     return _me
 
 
-def base_filter(cutoff: str) -> dict[str, Any]:
+def base_filter(cutoff: str, since: str | None = None) -> dict[str, Any]:
     # The v3 filter shape has no implicit "not trashed" default and returns hidden
     # (live-photo motion parts) and archived assets unless we say otherwise.
     return {
@@ -85,7 +88,7 @@ def base_filter(cutoff: str) -> dict[str, Any]:
         "trashedAt": {"eq": None},
         "visibility": {"eq": "timeline"},
         "type": {"in": ["IMAGE", "VIDEO"]},
-        "takenAt": {"lt": cutoff},
+        "takenAt": {"lt": cutoff, **({"gte": since} if since else {})},
     }
 
 
@@ -116,7 +119,8 @@ def load_config() -> dict[str, Any]:
     if CONFIG_PATH.exists():
         try:
             saved = json.loads(CONFIG_PATH.read_text())
-            cfg["minAgeDays"] = saved.get("minAgeDays", cfg["minAgeDays"])
+            for k in ("minAgeDays", "maxAgeDays", "sortOrder"):
+                cfg[k] = saved.get(k, cfg[k])
             cfg["bindings"].update({k: v for k, v in (saved.get("bindings") or {}).items() if k in KEYS})
         except (ValueError, OSError) as e:
             print(f"warning: ignoring unreadable {CONFIG_PATH.name}: {e}", file=sys.stderr)
@@ -130,7 +134,9 @@ class Binding(BaseModel):
 
 
 class Config(BaseModel):
-    minAgeDays: int = Field(ge=0, le=100_000)
+    minAgeDays: int = Field(ge=0, le=MAX_DAYS)
+    maxAgeDays: int = Field(ge=0, le=MAX_DAYS)
+    sortOrder: Literal["asc", "desc"]
     bindings: dict[Literal["left", "right", "up", "down"], Binding | None]
 
 
@@ -189,7 +195,9 @@ async def create_album(body: NewAlbum):
 
 
 class QueueRequest(BaseModel):
-    cutoff: str  # ISO timestamp: only assets taken before this
+    cutoff: str  # ISO timestamp: only assets taken before this (min age)
+    since: str | None = None  # ISO timestamp: only assets taken at/after this (max age)
+    order: Literal["asc", "desc"] = "desc"
     after: str | None = None  # keyset: fileCreatedAt of the last asset already fetched
     exclude: list[str] = []  # ids already fetched whose fileCreatedAt == after
     want: int = Field(default=50, ge=1, le=500)
@@ -197,7 +205,7 @@ class QueueRequest(BaseModel):
 
 @app.post("/api/queue")
 async def queue(req: QueueRequest):
-    """Oldest-first page of unalbumed assets.
+    """Next page of unalbumed assets, newest or oldest first.
 
     Uses keyset pagination on fileCreatedAt instead of Immich's cursor, because the
     cursor is a plain offset and the result set shrinks as assets get filed/trashed.
@@ -208,12 +216,12 @@ async def queue(req: QueueRequest):
     done = False
 
     for _ in range(25):
-        flt = base_filter(req.cutoff)
-        if after:
-            flt["takenAt"]["gte"] = after
+        flt = base_filter(req.cutoff, req.since)
+        if after:  # inclusive, so assets sharing the boundary timestamp aren't lost; `exclude` dedupes
+            flt["takenAt"]["gte" if req.order == "asc" else "lte"] = after
         body: dict[str, Any] = {
             "filter": flt,
-            "orderBy": {"field": "fileCreatedAt", "direction": "asc"},
+            "orderBy": {"field": "fileCreatedAt", "direction": req.order},
             "size": SEARCH_PAGE_SIZE,
             "withExif": True,
         }
@@ -249,11 +257,12 @@ async def queue(req: QueueRequest):
 
 class StatsRequest(BaseModel):
     cutoff: str
+    since: str | None = None
 
 
 @app.post("/api/stats")
 async def stats(req: StatsRequest):
-    res = await immich("POST", "/search/statistics", json={"filter": base_filter(req.cutoff)})
+    res = await immich("POST", "/search/statistics", json={"filter": base_filter(req.cutoff, req.since)})
     return {"total": res["total"]}
 
 

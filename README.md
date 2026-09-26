@@ -1,7 +1,7 @@
 # Immich-Swipe-Triage
 
-A local web app for triaging Immich photos and videos that are **not in any album** and older than N days.
-It shows one asset at a time, oldest first. You press an arrow key to add the asset to an album, trash it, or skip it.
+A local web app for triaging Immich photos and videos that are **not in any album** and taken within an age window
+(min/max age in days). It shows one asset at a time, newest first by default, or oldest first. You press an arrow key to add the asset to an album, trash it, or skip it.
 
 Requires **Immich v3.2+**, because it uses the structured `filter` search API.
 
@@ -16,7 +16,7 @@ The API key stays on the backend; the browser only talks to `127.0.0.1:8765`. Th
 `user.read`, `album.read`, `album.create`, `albumAsset.create`, `albumAsset.delete`, `asset.read`,
 `asset.statistics`, `asset.view`, `asset.download`, `asset.delete`.
 
-The app writes your key bindings and minimum age to `config.json` and pre-fills them on the next launch.
+The app writes your key bindings, age window and sort order to `config.json` and pre-fills them on the next launch.
 
 ## Keys (triage screen)
 
@@ -25,6 +25,7 @@ The app writes your key bindings and minimum age to `config.json` and pre-fills 
 | ← → ↑ ↓ | Bound action: add to album, trash, or skip |
 | `Z` / `Backspace` | Undo (multiple steps) |
 | `M` | Toggle video sound |
+| `H` | Show/hide the key overlay on the photo |
 | `Esc` | Back to setup; the queue is re-fetched on Start |
 
 ## Notes
