@@ -27,12 +27,15 @@ MIN_VERSION = (3, 2, 0)
 MAX_DAYS = 100_000  # ~274 years: "no upper limit" in practice
 SEARCH_PAGE_SIZE = 200
 UUID_RE = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-KEYS = ("left", "right", "up", "down")
+KEYS = ("left", "right", "up", "down", "1", "2", "3")  # digits are optional extras
 DEFAULT_CONFIG: dict[str, Any] = {
     "minAgeDays": 366,
     "maxAgeDays": MAX_DAYS,
     "sortOrder": "desc",
-    "bindings": {"left": None, "right": None, "up": {"type": "skip"}, "down": {"type": "trash"}},
+    "bindings": {
+        "left": None, "right": None, "up": {"type": "skip"}, "down": {"type": "trash"},
+        "1": None, "2": None, "3": None,
+    },
 }
 
 load_dotenv(ROOT / ".env")
@@ -137,7 +140,7 @@ class Config(BaseModel):
     minAgeDays: int = Field(ge=0, le=MAX_DAYS)
     maxAgeDays: int = Field(ge=0, le=MAX_DAYS)
     sortOrder: Literal["asc", "desc"]
-    bindings: dict[Literal["left", "right", "up", "down"], Binding | None]
+    bindings: dict[Literal["left", "right", "up", "down", "1", "2", "3"], Binding | None]
 
 
 @app.get("/api/config")

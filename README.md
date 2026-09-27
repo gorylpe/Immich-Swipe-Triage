@@ -23,6 +23,7 @@ The app writes your key bindings, age window and sort order to `config.json` and
 | Key | Action |
 | --- | --- |
 | ← → ↑ ↓ | Bound action: add to album, trash, or skip |
+| `1` `2` `3` | Optional extra bindings (unassigned by default) |
 | `Z` / `Backspace` | Undo (multiple steps) |
 | `M` | Toggle video sound |
 | `H` | Show/hide the key overlay on the photo |

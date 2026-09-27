@@ -72,10 +72,13 @@
   .chip span { overflow: hidden; text-overflow: ellipsis; }
   .chip kbd { min-width: 1.7em; padding: 0 .3em; font-size: 1em; line-height: 1.5; border-radius: 10px;
     background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.3); color: #fff; }
-  .chip.left { left: 20px; top: 50%; transform: translateY(-50%); }
-  .chip.right { right: 20px; top: 50%; transform: translateY(-50%); }
-  .chip.up { top: 20px; left: 50%; transform: translateX(-50%); }
-  .chip.down { bottom: 20px; left: 50%; transform: translateX(-50%); }
+  .chip.k-left { left: 20px; top: 50%; transform: translateY(-50%); }
+  .chip.k-right { right: 20px; top: 50%; transform: translateY(-50%); }
+  .chip.k-up { top: 20px; left: 50%; transform: translateX(-50%); }
+  .chip.k-down { bottom: 20px; left: 50%; transform: translateX(-50%); }
+  .digits { position: absolute; left: 20px; bottom: 20px; display: flex; flex-direction: column; gap: 10px;
+    align-items: flex-start; max-width: 32%; }
+  .digits .chip { position: static; max-width: 100%; font-size: clamp(15px, 1.6vw, 22px); padding: 8px 20px 8px 8px; }
   .chip.trash { border-color: rgba(255,93,93,.55); }
   .chip.album { border-color: rgba(79,140,255,.6); }
   .chip.hit { opacity: 1; background: rgba(79,140,255,.85); transition: none; }
@@ -179,6 +182,9 @@ const KEYS = [
   { key: "right", code: "ArrowRight", glyph: "→" },
   { key: "up", code: "ArrowUp", glyph: "↑" },
   { key: "down", code: "ArrowDown", glyph: "↓" },
+  { key: "1", code: "1", glyph: "1", optional: true },
+  { key: "2", code: "2", glyph: "2", optional: true },
+  { key: "3", code: "3", glyph: "3", optional: true },
 ];
 const PREFETCH = 4;           // assets preloaded ahead of the current one
 const REFILL_BELOW = 15;      // fetch the next page when fewer than this remain locally
@@ -349,7 +355,7 @@ function renderBindings() {
       renderStartState();
     };
 
-    row.innerHTML = `<span class="key"><kbd>${k.glyph}</kbd>${k.key}</span>`;
+    row.innerHTML = `<span class="key"><kbd>${k.glyph}</kbd>${k.optional ? "optional" : k.key}</span>`;
     row.append(sel, newWrap);
     box.append(row);
   }
@@ -368,7 +374,10 @@ function sinceDate() {
 }
 
 function renderStartState() {
-  const missing = KEYS.filter((k) => !bindingValid(S.config.bindings[k.key])).map((k) => k.glyph);
+  const missing = KEYS.filter((k) => {
+    const b = S.config.bindings[k.key];
+    return k.optional ? b && !bindingValid(b) : !bindingValid(b);
+  }).map((k) => k.glyph);
   const reasons = [];
   if (!S.info) reasons.push("not connected to Immich");
   else if (!S.info.versionOk) reasons.push(`Immich ${S.info.minVersion}+ required`);
@@ -645,10 +654,13 @@ hints.className = "hints";
 let hintsOn = true;
 
 function buildHints() {
-  hints.innerHTML = KEYS.map((k) => {
+  const chip = (k) => {
     const b = S.config.bindings[k.key];
-    return `<div class="chip ${k.key} ${b?.type || ""}" data-key="${k.key}"><kbd>${k.glyph}</kbd><span>${esc(bindingLabel(b))}</span></div>`;
-  }).join("");
+    return `<div class="chip k-${k.key} ${b?.type || ""}"><kbd>${k.glyph}</kbd><span>${esc(bindingLabel(b))}</span></div>`;
+  };
+  const digits = KEYS.filter((k) => k.optional && S.config.bindings[k.key]);
+  hints.innerHTML = KEYS.filter((k) => !k.optional).map(chip).join("") +
+    (digits.length ? `<div class="digits">${digits.map(chip).join("")}</div>` : "");
 }
 
 function attachHints() {
@@ -657,7 +669,7 @@ function attachHints() {
 }
 
 function flashChip(key) {
-  const chip = hints.querySelector(`.chip.${key}`);
+  const chip = hints.querySelector(`.chip.k-${key}`);
   if (!chip) return;
   chip.classList.add("hit");
   setTimeout(() => chip.classList.remove("hit"), 180);
@@ -726,7 +738,7 @@ function renderTopbar() {
 }
 
 function renderLegend() {
-  const parts = KEYS.map((k) => `<span><kbd>${k.glyph}</kbd><span class="act">${esc(bindingLabel(S.config.bindings[k.key]))}</span></span>`);
+  const parts = KEYS.filter((k) => !k.optional || S.config.bindings[k.key]).map((k) => `<span><kbd>${k.glyph}</kbd><span class="act">${esc(bindingLabel(S.config.bindings[k.key]))}</span></span>`);
   parts.push(`<span><kbd>Z</kbd>Undo</span>`, `<span><kbd>M</kbd>Sound</span>`, `<span><kbd>H</kbd>Overlay</span>`, `<span><kbd>Esc</kbd>Setup</span>`);
   $("legend").innerHTML = parts.join("");
   buildHints();
